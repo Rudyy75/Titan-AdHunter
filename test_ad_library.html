@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Meta Ad Library Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .ad-card {
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .ad-link {
+            color: #1877f2;
+            text-decoration: none;
+            margin-right: 10px;
+        }
+        .profile-link {
+            color: #65676b;
+            font-size: 14px;
+        }
+        h4 {
+            margin: 0 0 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Meta Ad Library Test Page</h1>
+    <p>This page simulates the Meta Ad Library structure for testing the AdHunter extension.</p>
+    
+    <div class="ad-card" role="article">
+        <h4>Test Brand 1</h4>
+        <a class="profile-link" href="https://facebook.com/ads/library/?active_status=all&ad_type=all&country=US&q=test">Test Brand 1</a>
+        <br><br>
+        <a class="ad-link" href="https://l.facebook.com/l.php?u=https%3A%2F%2Fexample.com%2Fsignup">Ad Link 1</a>
+    </div>
+    
+    <div class="ad-card" role="article">
+        <h4>Test Brand 2</h4>
+        <a class="profile-link" href="https://facebook.com/ads/library/?active_status=all&ad_type=all&country=US&q=test">Test Brand 2</a>
+        <br><br>
+        <a class="ad-link" href="https://l.facebook.com/l.php?u=https%3A%2F%2Fexample2.com%2Fregister">Ad Link 2</a>
+    </div>
+    
+    <div class="ad-card" role="article">
+        <h4>Test Brand 3</h4>
+        <a class="profile-link" href="https://facebook.com/ads/library/?active_status=all&ad_type=all&country=US&q=test">Test Brand 3</a>
+        <br><br>
+        <a class="ad-link" href="https://l.facebook.com/l.php?u=https%3A%2F%2Fexample3.com%2Fget-started">Ad Link 3</a>
+    </div>
+    
+    <div class="ad-card" role="article">
+        <h4>Test Brand 4</h4>
+        <a class="profile-link" href="https://facebook.com/ads/library/?active_status=all&ad_type=all&country=US&q=test">Test Brand 4</a>
+        <br><br>
+        <a class="ad-link" href="https://l.facebook.com/l.php?u=https%3A%2F%2Fexample4.com%2Fcreate-account">Ad Link 4</a>
+    </div>
+    
+    <div class="ad-card" role="article">
+        <h4>Test Brand 5</h4>
+        <a class="profile-link" href="https://facebook.com/ads/library/?active_status=all&ad_type=all&country=US&q=test">Test Brand 5</a>
+        <br><br>
+        <a class="ad-link" href="https://l.facebook.com/l.php?u=https%3A%2F%2Fexample5.com%2Ftry-free">Ad Link 5</a>
+    </div>
+    
+    <script>
+        // Simulate infinite scroll by adding more content when scrolled to bottom
+        window.addEventListener('scroll', function() {
+            if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 100) {
+                // Add more ad cards
+                const container = document.body;
+                for (let i = 0; i < 3; i++) {
+                    const newCard = document.createElement('div');
+                    newCard.className = 'ad-card';
+                    newCard.setAttribute('role', 'article');
+                    newCard.innerHTML = `
+                        <h4>Test Brand ${Math.floor(Math.random() * 100)}</h4>
+                        <a class="profile-link" href="https://facebook.com/ads/library/?active_status=all&ad_type=all&country=US&q=test">Test Brand</a>
+                        <br><br>
+                        <a class="ad-link" href="https://l.facebook.com/l.php?u=https%3A%2F%2Fexample${Math.floor(Math.random() * 100)}.com%2Fsignup">Ad Link</a>
+                    `;
+                    container.appendChild(newCard);
+                }
+            }
+        });
+    </script>
+</body>
+</html>

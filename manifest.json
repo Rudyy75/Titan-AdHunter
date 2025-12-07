@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Titan Ad Hunter",
+  "version": "1.0",
+  "permissions": ["activeTab", "scripting", "storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.facebook.com/ads/library/*"],
+      "js": ["content.js"]
+    }
+  ]
+}

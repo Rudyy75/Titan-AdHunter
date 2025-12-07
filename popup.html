@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {
+            width: 400px;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #dc143c;
+            padding-bottom: 10px;
+        }
+        
+        h1 {
+            margin: 0;
+            font-size: 18px;
+            color: #dc143c;
+        }
+        
+        .subtitle {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+        
+        .progress-container {
+            margin: 15px 0;
+        }
+        
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #333;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: #dc143c;
+            transition: width 0.3s ease;
+        }
+        
+        .progress-fill.safety {
+            background: #ff6b6b;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        
+        button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 6px;
+            background: #dc143c;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        button:hover {
+            background: #b01030;
+        }
+        
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        
+        .results {
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .result-item {
+            padding: 8px;
+            margin: 5px 0;
+            background: #2a2a2a;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .status {
+            text-align: center;
+            font-size: 12px;
+            margin: 10px 0;
+            min-height: 16px;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            opacity: 0.8;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>AdHunter</h1>
+        <div class="subtitle">Meta Ad Library Lead Generator</div>
+    </div>
+    
+    <div class="progress-container">
+        <div class="progress-label">
+            <span>Processing Progress</span>
+            <span id="progress-text">0/75</span>
+        </div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+        </div>
+    </div>
+    
+    <div class="progress-container">
+        <div class="progress-label">
+            <span>Safety Progress</span>
+            <span id="safety-text">0/75</span>
+        </div>
+        <div class="progress-bar">
+            <div class="progress-fill safety" id="safety-fill" style="width: 0%"></div>
+        </div>
+    </div>
+    
+    <div class="controls">
+        <button id="scan-btn">Start Scan</button>
+        <button id="export-btn" disabled>Export CSV</button>
+    </div>
+    
+    <div class="status" id="status">Ready to scan</div>
+    
+    <div class="results" id="results">
+        <!-- Results will be populated here -->
+    </div>
+    
+    <div class="stats">
+        <span id="total-ads">Total Ads: 0</span>
+        <span id="unique-brands">Unique Brands: 0</span>
+    </div>
+    
+    <script src="popup.js"></script>
+</body>
+</html>
