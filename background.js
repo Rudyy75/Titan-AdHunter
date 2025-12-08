@@ -1,91 +1,151 @@
 // background.js
-let activeTabs = new Set();
-
-// Global State
-let scannedBrandsSet = new Set(); // Tracks unique brand domains to enforce Safety Cap
-let qualifiedLeads = [];
-let processingQueue = [];
-let isProcessing = false;
-let contentTabId = null;
+// MV3 Compliant State Management via chrome.storage.local
 
 const SUCCESS_TARGET = 10;
-const SAFETY_CAP = 75;
+const SAFETY_CAP = 100;
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+// Initialize storage with defaults if empty
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.get(['state'], (result) => {
+    if (!result.state) {
+      chrome.storage.local.set({
+        state: {
+          scannedBrandsSet: [],
+          qualifiedLeads: [],
+          processingQueue: [],
+          isProcessing: false,
+          contentTabId: null
+        }
+      });
+    }
+  });
+});
+
+let activeTabs = new Set();
+
+// Load state from storage
+async function loadState() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['state'], (result) => {
+      resolve(result.state || {
+        scannedBrandsSet: [],
+        qualifiedLeads: [],
+        processingQueue: [],
+        isProcessing: false,
+        contentTabId: null
+      });
+    });
+  });
+}
+
+// Save state to storage
+async function saveState(state) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ state }, () => resolve());
+  });
+}
+
+chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
+  const state = await loadState();
+  
   if (request.action === "start_scan_session") {
     // Reset State
-    scannedBrandsSet.clear();
-    qualifiedLeads = [];
-    processingQueue = [];
-    isProcessing = false;
-    contentTabId = sender.tab ? sender.tab.id : null;
-    console.log("Starting new scan session. Tab ID:", contentTabId);
+    const newState = {
+      scannedBrandsSet: [],
+      qualifiedLeads: [],
+      processingQueue: [],
+      isProcessing: false,
+      contentTabId: sender.tab ? sender.tab.id : null
+    };
+    await saveState(newState);
+    console.log("Starting new scan session. Tab ID:", newState.contentTabId);
     return;
   }
 
   if (request.action === "process_batch") {
     const newAds = request.ads;
-    contentTabId = sender.tab ? sender.tab.id : contentTabId;
+    const contentTabId = sender.tab ? sender.tab.id : state.contentTabId;
+    
+    // Update state with new tab ID if provided
+    if (contentTabId !== state.contentTabId) {
+      state.contentTabId = contentTabId;
+    }
 
-    // Filter for globally unique brands
-    const uniqueBatch = newAds.filter(ad => {
+    // 1. Deduplicate WITHIN the batch first
+    const uniqueBatchDomains = new Set();
+    const uniqueBatch = [];
+
+    newAds.forEach(ad => {
       const domain = getDomain(ad.url);
-      if (scannedBrandsSet.has(domain)) return false;
-      return true;
-    });
-
-    // Add unique ones to set and queue
-    uniqueBatch.forEach(ad => {
-      if (scannedBrandsSet.size < SAFETY_CAP) {
-        scannedBrandsSet.add(getDomain(ad.url));
-        processingQueue.push(ad);
+      // Only keep if we haven't seen this domain IN THIS BATCH and not GLOBALLY
+      if (!uniqueBatchDomains.has(domain) && !state.scannedBrandsSet.includes(domain)) {
+        uniqueBatchDomains.add(domain);
+        uniqueBatch.push(ad);
       }
     });
 
-    console.log(`Received batch: ${newAds.length}, Unique New: ${uniqueBatch.length}, Queue Size: ${processingQueue.length}`);
-    updateUI();
+    // 2. Add to global set and queue
+    uniqueBatch.forEach(ad => {
+      if (state.scannedBrandsSet.length < SAFETY_CAP) {
+        state.scannedBrandsSet.push(getDomain(ad.url));
+        state.processingQueue.push(ad);
+      }
+    });
+
+    console.log(`Received batch: ${newAds.length}, Unique Valid: ${uniqueBatch.length}, Queue Size: ${state.processingQueue.length}`);
+    await saveState(state);
+    updateUI(state);
 
     // Start processing if not already running
-    if (!isProcessing) {
+    if (!state.isProcessing) {
+      state.isProcessing = true;
+      await saveState(state);
       processNextAd();
     }
   }
 });
 
 async function processNextAd() {
+  const state = await loadState();
+  
   // Check Termination Conditions
-  if (qualifiedLeads.length >= SUCCESS_TARGET) {
-    finishScan("Target Reached");
-    return;
-  }
+  // Limit check removed to allow continuous scanning until safety cap
+  // if (state.qualifiedLeads.length >= SUCCESS_TARGET) {
+  //   await finishScan("Target Reached", state);
+  //   return;
+  // }
 
-  if (processingQueue.length === 0) {
-    isProcessing = false;
+  if (state.processingQueue.length === 0) {
+    state.isProcessing = false;
+    await saveState(state);
+    
     // Queue empty. Check if we reached safety cap.
-    if (scannedBrandsSet.size >= SAFETY_CAP) {
-      finishScan("Safety Cap Reached");
+    if (state.scannedBrandsSet.length >= SAFETY_CAP) {
+      await finishScan("Safety Cap Reached", state);
     } else {
       // Need more ads! Trigger scroll in content script.
       console.log("Queue empty. Requesting more ads...");
-      if (contentTabId) {
-        chrome.tabs.sendMessage(contentTabId, { action: "trigger_scroll" });
+      if (state.contentTabId) {
+        chrome.tabs.sendMessage(state.contentTabId, { action: "trigger_scroll" }).catch(err => {
+          console.log("Error sending scroll trigger:", err);
+        });
       }
     }
     return;
   }
 
-  isProcessing = true;
-  const currentAd = processingQueue.shift();
-  console.log(`Processing Ad (${scannedBrandsSet.size}/${SAFETY_CAP}):`, currentAd.url);
-  updateUI();
+  const currentAd = state.processingQueue.shift();
+  console.log(`Processing Ad (${state.scannedBrandsSet.length}/${SAFETY_CAP}):`, currentAd.url);
+  await saveState(state);
+  updateUI(state);
 
   try {
     // Step 1: Analyze Landing Page
     const landingAnalysis = await analyzeUrl(currentAd.url, analyzePageForSignUp);
-    
+
     if (landingAnalysis && landingAnalysis.hasSignUp) {
       console.log('✅ Sign-up detected on:', currentAd.url);
-      
+
       // Step 2: Analyze Facebook Profile (if link exists)
       let fbAnalysis = { email: "", instagram: "" };
       if (currentAd.fbLink && currentAd.fbLink.includes('facebook.com')) {
@@ -96,54 +156,63 @@ async function processNextAd() {
       }
 
       // Merge Data
-      qualifiedLeads.push({
+      const leadData = {
         name: currentAd.name,
         website: landingAnalysis.finalUrl || currentAd.url,
-        email: landingAnalysis.email || fbAnalysis.email || "", 
+        email: landingAnalysis.email || fbAnalysis.email || "",
         instagram: landingAnalysis.instagram || fbAnalysis.instagram || currentAd.fbLink,
         fbProfile: currentAd.fbLink,
         profileEmail: fbAnalysis.email || "",
         profileInstagram: fbAnalysis.instagram || "",
         detectionMethods: landingAnalysis.detectionMethods
-      });
-      
+      };
+
+      state.qualifiedLeads.push(leadData);
+      await saveState(state);
+
+      // Send result to popup immediately
+      chrome.runtime.sendMessage({
+        action: "add_result",
+        result: leadData
+      }).catch(() => { });
+
+      // Update UI immediately
+      updateUI(state);
+
     } else {
       console.log('❌ No sign-up detected:', currentAd.url);
     }
-    
+
   } catch (error) {
     console.log('Error processing Ad:', currentAd.url, error);
   }
-  
-  // Strict Serial Processing Delay
+
+  // Continue processing with delay
   setTimeout(processNextAd, 2000);
 }
 
-function finishScan(reason) {
-  isProcessing = false;
+async function finishScan(reason, state) {
+  state.isProcessing = false;
   console.log(`Scan Finished: ${reason}`);
-  
-  chrome.storage.local.set({ 
-    leads: qualifiedLeads,
-    processingComplete: true 
-  });
-  
+
+  await saveState(state);
+
   chrome.runtime.sendMessage({
     action: "scan_complete",
-    qualifiedCount: qualifiedLeads.length,
-    totalScanned: scannedBrandsSet.size,
+    qualifiedCount: state.qualifiedLeads.length,
+    totalScanned: state.scannedBrandsSet.length,
     reason: reason
   });
 }
 
-function updateUI() {
+function updateUI(state) {
   chrome.runtime.sendMessage({
     action: "update_dual_progress",
-    processingProgress: qualifiedLeads.length,
-    safetyProgress: scannedBrandsSet.size,
-    totalAds: scannedBrandsSet.size,
-    uniqueBrands: qualifiedLeads.length
-  }).catch(() => {}); // Catch error if popup is closed
+    processingProgress: state.qualifiedLeads.length,
+    safetyProgress: state.scannedBrandsSet.length,
+    totalAds: state.scannedBrandsSet.length,
+    uniqueBrands: state.scannedBrandsSet.length
+  }).catch(() => { });
 }
 
 function getDomain(url) {
@@ -159,19 +228,15 @@ function analyzeFacebookProfile() {
   let email = "";
   let instagram = "";
 
-  // Look for email in the "Intro" or "About" sections
-  // Facebook structure is complex, so we look for mailto links and text patterns generally
   const mailtoLink = document.querySelector('a[href^="mailto:"]');
   if (mailtoLink) {
     email = mailtoLink.href.replace('mailto:', '').split('?')[0];
   } else {
-     // Text search in visible body content
-     const bodyText = document.body.innerText;
-     const emailMatch = bodyText.match(/[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}/);
-     if (emailMatch) email = emailMatch[0];
+    const bodyText = document.body.innerText;
+    const emailMatch = bodyText.match(/[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}/);
+    if (emailMatch) email = emailMatch[0];
   }
 
-  // Look for Instagram link
   const igLink = document.querySelector('a[href*="instagram.com"]');
   if (igLink) instagram = igLink.href;
 
@@ -212,14 +277,13 @@ async function analyzeUrl(url, scriptFunc) {
   } catch (e) {
     console.log("Error analyzing URL:", url, e);
     if (tabId) {
-      chrome.tabs.remove(tabId).catch(() => {});
+      chrome.tabs.remove(tabId).catch(() => { });
       activeTabs.delete(tabId);
     }
     return null;
   }
 }
 
-// Function to be injected into landing pages
 function analyzePageForSignUp() {
   const detectionMethods = [];
   let hasSignUp = false;
@@ -227,42 +291,34 @@ function analyzePageForSignUp() {
   let foundEmail = "";
   let foundInstagram = "";
 
-  // --- Data Extraction ---
-  
-  // 1. Extract Email (Mailto links or text patterns)
+  // Extract Email
   const mailtoLink = document.querySelector('a[href^="mailto:"]');
   if (mailtoLink) {
     foundEmail = mailtoLink.href.replace('mailto:', '').split('?')[0];
   } else {
-    // Regex for email in body text (simple version)
     const emailRegex = /[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}/;
     const footer = document.querySelector('footer') || document.body;
     const match = footer.innerText.match(emailRegex);
     if (match) foundEmail = match[0];
   }
 
-  // 2. Extract Instagram Link
+  // Extract Instagram Link
   const igLink = document.querySelector('a[href*="instagram.com"]');
   if (igLink) foundInstagram = igLink.href;
 
-
-  // --- Sign-up Detection ---
-
-  // 1. Check for email input fields
+  // Sign-up Detection
   const emailInputs = document.querySelectorAll('input[type="email"], input[name*="email"], input[placeholder*="email" i]');
   if (emailInputs.length > 0) {
     detectionMethods.push('email_input_fields');
     hasSignUp = true;
   }
-  
-  // 2. Check for password fields
+
   const passwordInputs = document.querySelectorAll('input[type="password"]');
   if (passwordInputs.length > 0) {
     detectionMethods.push('password_fields');
     hasSignUp = true;
   }
-  
-  // 3. Check for sign-up related text in buttons and links
+
   const signUpTextPatterns = [
     /sign\s*up/i,
     /register/i,
@@ -273,7 +329,7 @@ function analyzePageForSignUp() {
     /start\s*free\s*trial/i,
     /create\s*profile/i
   ];
-  
+
   const allTextElements = document.querySelectorAll('button, a, span, div, p, h1, h2, h3, h4, h5, h6');
   allTextElements.forEach(element => {
     const text = element.textContent?.toLowerCase() || '';
@@ -284,19 +340,17 @@ function analyzePageForSignUp() {
       }
     });
   });
-  
-  // 4. Check for form elements with sign-up related attributes
+
   const forms = document.querySelectorAll('form');
   forms.forEach(form => {
     const formHtml = form.outerHTML.toLowerCase();
-    if (formHtml.includes('signup') || formHtml.includes('register') || 
-        formHtml.includes('create-account') || formHtml.includes('newsletter')) {
+    if (formHtml.includes('signup') || formHtml.includes('register') ||
+      formHtml.includes('create-account') || formHtml.includes('newsletter')) {
       detectionMethods.push('form_attributes');
       hasSignUp = true;
     }
   });
-  
-  // 5. Check for common sign-up class names and IDs
+
   const signUpSelectors = [
     '[class*="signup"]',
     '[class*="register"]',
@@ -308,14 +362,14 @@ function analyzePageForSignUp() {
     '.registration-form',
     '.newsletter-form'
   ];
-  
+
   signUpSelectors.forEach(selector => {
     if (document.querySelector(selector)) {
       detectionMethods.push(`css_selector_${selector}`);
       hasSignUp = true;
     }
   });
-  
+
   return {
     hasSignUp: hasSignUp,
     finalUrl: finalUrl,
@@ -328,6 +382,6 @@ function analyzePageForSignUp() {
 // Cleanup function for any remaining tabs
 chrome.runtime.onSuspend.addListener(() => {
   activeTabs.forEach(tabId => {
-    chrome.tabs.remove(tabId).catch(() => {});
+    chrome.tabs.remove(tabId).catch(() => { });
   });
 });

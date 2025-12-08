@@ -52,9 +52,10 @@ A Chrome extension that automates the analysis of ads from the Meta Ad Library t
 
 For testing purposes, use the included `test_ad_library.html` file:
 
-1. Open `test_ad_library.html` in Chrome
-2. Click the AdHunter extension icon
-3. Start the scan to test the basic functionality
+1. **Important**: Go to `chrome://extensions`, find AdHunter, click "Details", and enable "Allow access to file URLs".
+2. Open `test_ad_library.html` in Chrome.
+3. Click the AdHunter extension icon.
+4. Start the scan to test the basic functionality.
 
 ## Technical Architecture
 

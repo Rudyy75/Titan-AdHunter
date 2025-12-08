@@ -1,6 +1,7 @@
 // popup.js
 let results = [];
 let isScanning = false;
+let scanSessionId = Date.now(); // Unique ID for this scan session
 
 document.addEventListener('DOMContentLoaded', function() {
     const scanBtn = document.getElementById('scan-btn');
@@ -13,6 +14,17 @@ document.addEventListener('DOMContentLoaded', function() {
     const safetyText = document.getElementById('safety-text');
     const totalAdsSpan = document.getElementById('total-ads');
     const uniqueBrandsSpan = document.getElementById('unique-brands');
+
+    // Load any existing results from storage
+    chrome.storage.local.get(['state'], (result) => {
+        if (result.state && result.state.qualifiedLeads) {
+            results = result.state.qualifiedLeads;
+            results.forEach(lead => addResultToUI(lead));
+            if (results.length > 0) {
+                exportBtn.disabled = false;
+            }
+        }
+    });
 
     // Listen for messages from background script
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -30,7 +42,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         if (request.action === "scan_complete") {
-            scanComplete();
+            scanComplete(request.qualifiedCount, request.totalScanned, request.reason);
         }
         
         if (request.action === "scan_error") {
@@ -52,7 +64,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function startScan() {
         isScanning = true;
+        scanSessionId = Date.now(); // New session ID
         scanBtn.textContent = 'Stop Scan';
+        scanBtn.style.background = '#ff6b6b'; // Visual feedback
         status.textContent = 'Starting scan...';
         results = [];
         resultsDiv.innerHTML = '';
@@ -66,11 +80,29 @@ document.addEventListener('DOMContentLoaded', function() {
             if (tabs[0]) {
                 chrome.tabs.sendMessage(tabs[0].id, {action: "scan_ads"}, function(response) {
                     if (chrome.runtime.lastError) {
-                        status.textContent = 'Error: Please navigate to Meta Ad Library first';
+                        // Check if this is a valid target page
+                        const url = tabs[0].url;
+                        if (!url.includes('facebook.com/ads/library') && 
+                            !(url.startsWith('file://') && url.includes('test_ad_library.html'))) {
+                            status.textContent = 'Error: Please navigate to Meta Ad Library or test file first';
+                        } else {
+                            status.textContent = 'Error: Content script not responding. Try refreshing the page.';
+                        }
                         isScanning = false;
                         scanBtn.textContent = 'Start Scan';
+                        scanBtn.style.background = '#dc143c';
+                    } else if (response && response.status === "already_scanning") {
+                        status.textContent = 'Scan already in progress';
+                        isScanning = false;
+                        scanBtn.textContent = 'Start Scan';
+                        scanBtn.style.background = '#dc143c';
                     }
                 });
+            } else {
+                status.textContent = 'Error: No active tab found';
+                isScanning = false;
+                scanBtn.textContent = 'Start Scan';
+                scanBtn.style.background = '#dc143c';
             }
         });
     }
@@ -78,20 +110,23 @@ document.addEventListener('DOMContentLoaded', function() {
     function stopScan() {
         isScanning = false;
         scanBtn.textContent = 'Start Scan';
+        scanBtn.style.background = '#dc143c';
         status.textContent = 'Scan stopped';
         chrome.runtime.sendMessage({action: "stop_scan"});
     }
 
-    function scanComplete() {
+    function scanComplete(qualifiedCount, totalScanned, reason) {
         isScanning = false;
         scanBtn.textContent = 'Start Scan';
-        status.textContent = `Scan complete! Found ${results.length} qualifying websites`;
+        scanBtn.style.background = '#dc143c';
+        status.textContent = `Scan complete! Found ${qualifiedCount} qualifying websites (${reason})`;
         exportBtn.disabled = false;
     }
 
     function scanError(message) {
         isScanning = false;
         scanBtn.textContent = 'Start Scan';
+        scanBtn.style.background = '#dc143c';
         status.textContent = `Error: ${message}`;
     }
 
@@ -112,8 +147,12 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function addResult(result) {
+        // Only add results from the current scan session
         results.push(result);
-        
+        addResultToUI(result);
+    }
+
+    function addResultToUI(result) {
         const resultItem = document.createElement('div');
         resultItem.className = 'result-item';
         resultItem.innerHTML = `
@@ -130,19 +169,21 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        const csvContent = "data:text/csv;charset=utf-8,"
-            + "Brand Name,Website URL,Facebook Profile\n"
-            + results.map(result => {
+        const csvContent = "data:text/csv;charset=utf-8," +
+            "Brand Name,Website URL,Facebook Profile,Email,Instagram,Detection Methods\n" +
+            results.map(result => {
                 let fbProfile = result.fbProfile || 'No Facebook Profile';
                 let email = result.email || 'No Email';
+                let instagram = result.instagram || 'No Instagram';
+                let detectionMethods = result.detectionMethods ? result.detectionMethods.join('; ') : 'Unknown';
                 
-                return `"${result.name.replace(/"/g, '""')}","${result.website}","${fbProfile}"`;
+                return `"${result.name.replace(/"/g, '""')}","${result.website}","${fbProfile}","${email}","${instagram}","${detectionMethods}"`;
             }).join("\n");
 
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "ad_hunter_results.csv");
+        link.setAttribute("download", `ad_hunter_results_${Date.now()}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -151,4 +192,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize UI
     updateProgressBars(0, 0);
     updateStats(0, 0);
+    
+    // Check if a scan is already in progress
+    chrome.storage.local.get(['state'], (result) => {
+        if (result.state && result.state.isProcessing) {
+            isScanning = true;
+            scanBtn.textContent = 'Stop Scan';
+            scanBtn.style.background = '#ff6b6b';
+            status.textContent = 'Scan in progress...';
+        }
+    });
 });
