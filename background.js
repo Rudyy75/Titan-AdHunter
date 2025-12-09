@@ -2,7 +2,7 @@
 // MV3 Compliant State Management via chrome.storage.local
 
 const SUCCESS_TARGET = 10;
-const SAFETY_CAP = 100;
+const SAFETY_CAP = 30;
 
 // Initialize storage with defaults if empty
 chrome.runtime.onInstalled.addListener(() => {
@@ -160,7 +160,7 @@ async function processNextAd() {
         name: currentAd.name,
         website: landingAnalysis.finalUrl || currentAd.url,
         email: landingAnalysis.email || fbAnalysis.email || "",
-        instagram: landingAnalysis.instagram || fbAnalysis.instagram || currentAd.fbLink,
+        instagram: landingAnalysis.instagram || fbAnalysis.instagram || "",
         fbProfile: currentAd.fbLink,
         profileEmail: fbAnalysis.email || "",
         profileInstagram: fbAnalysis.instagram || "",

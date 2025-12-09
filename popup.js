@@ -155,6 +155,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function addResultToUI(result) {
         const resultItem = document.createElement('div');
         resultItem.className = 'result-item';
+
+        const fbDisplay = result.fbProfile 
+        ? `<a href="${result.fbProfile}" target="_blank" style="color:#1877f2;">Facebook Profile</a>`
+        : 'No Facebook Profile';
+        
         resultItem.innerHTML = `
             <strong>${result.name}</strong><br>
             <a href="${result.website}" target="_blank" style="color: #dc143c;">${result.website}</a>
