@@ -160,7 +160,7 @@ async function processNextAd() {
         name: currentAd.name,
         website: landingAnalysis.finalUrl || currentAd.url,
         email: landingAnalysis.email || fbAnalysis.email || "",
-        instagram: landingAnalysis.instagram || fbAnalysis.instagram || currentAd.fbLink,
+        instagram: landingAnalysis.instagram || fbAnalysis.instagram || "",
         fbProfile: currentAd.fbLink,
         profileEmail: fbAnalysis.email || "",
         profileInstagram: fbAnalysis.instagram || "",
