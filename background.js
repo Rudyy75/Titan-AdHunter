@@ -2,7 +2,7 @@
 // MV3 Compliant State Management via chrome.storage.local
 
 const SUCCESS_TARGET = 10;
-const SAFETY_CAP = 100;
+const SAFETY_CAP = 30;
 
 // Initialize storage with defaults if empty
 chrome.runtime.onInstalled.addListener(() => {
