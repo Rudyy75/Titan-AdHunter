@@ -70,6 +70,7 @@ function scrapeAndSendBatch() {
     return true;
   };
 
+  // ⭐⭐⭐ FIXED: IMPROVED ADVERTISER EXTRACTION ⭐⭐⭐
   allLinks.forEach(link => {
     if (!link || !link.href) return;
 
@@ -80,36 +81,123 @@ function scrapeAndSendBatch() {
     let name = "Unknown";
     let fbLink = "";
 
-    // ⭐⭐⭐ FIXED: REAL META ADS LIBRARY ADVERTISER BLOCK ⭐⭐⭐
-    const advertiserBlock = link.closest('[data-testid="ad_library_advertiser_info"]');
+    // Strategy 1: Look for advertiser info in parent containers
+    let advertiserContainer = null;
+    
+    // Try multiple selectors for advertiser container
+    const containerSelectors = [
+      // Common Facebook Ads Library structures
+      '[data-testid*="advertiser"]',
+      '[aria-label*="Advertiser"]',
+      '[class*="advertiser"]',
+      'div[role="article"]', // Ad card container
+      'div[class*="x1yztbdb"]', // Common Facebook class pattern
+      'div[class*="x1iorvi4"]', // Another common class
+      link.closest('div[role="article"]'), // Closest ad article
+      link.closest('div[class*="x1yztbdb"]'), // Closest common container
+    ];
 
-    if (advertiserBlock) {
-      // Extract advertiser name
-      const nameElement = advertiserBlock.querySelector('a[role="link"] span');
-      if (nameElement) {
-        name = nameElement.innerText.trim();
+    for (const selector of containerSelectors) {
+      if (typeof selector === 'string') {
+        advertiserContainer = link.closest(selector);
+      } else if (selector) {
+        advertiserContainer = selector;
+      }
+      if (advertiserContainer) break;
+    }
+
+    if (advertiserContainer) {
+      // Strategy A: Look for advertiser name
+      const nameSelectors = [
+        'a[href*="/page"] span',
+        'a[href*="/profile"] span',
+        'a[role="link"] span',
+        'span[dir="auto"]',
+        'div[dir="auto"]',
+        'a div[dir="auto"]',
+        'a span[dir="auto"]'
+      ];
+
+      for (const nameSelector of nameSelectors) {
+        const nameElement = advertiserContainer.querySelector(nameSelector);
+        if (nameElement && nameElement.textContent && nameElement.textContent.trim()) {
+          name = nameElement.textContent.trim();
+          break;
+        }
       }
 
-      // Extract advertiser Facebook profile link
-      const profileAnchor = advertiserBlock.querySelector('a[role="link"]');
-      if (profileAnchor) {
-        let rawHref = profileAnchor.getAttribute('href');
+      // Strategy B: Look for Facebook profile link
+      const linkSelectors = [
+        'a[href*="/page/"]',
+        'a[href*="/profile.php"]',
+        'a[href^="/"]', // Relative links
+        'a[href*="facebook.com"]'
+      ];
 
-        if (rawHref.startsWith('/')) {
-          fbLink = `https://www.facebook.com${rawHref}`;
-        } else {
-          fbLink = rawHref;
+      for (const linkSelector of linkSelectors) {
+        const profileLinkElement = advertiserContainer.querySelector(linkSelector);
+        if (profileLinkElement && profileLinkElement.href) {
+          let rawHref = profileLinkElement.href || profileLinkElement.getAttribute('href');
+          
+          if (rawHref) {
+            // Handle relative URLs
+            if (rawHref.startsWith('/')) {
+              fbLink = `https://www.facebook.com${rawHref}`;
+            } else if (rawHref.startsWith('http')) {
+              fbLink = rawHref;
+            }
+            
+            // Clean the URL
+            if (fbLink.includes('?')) fbLink = fbLink.split('?')[0];
+            if (fbLink.endsWith('/')) fbLink = fbLink.slice(0, -1);
+            break;
+          }
         }
-
-        // Clean
-        if (fbLink.includes('?')) fbLink = fbLink.split('?')[0];
-        if (fbLink.endsWith('/')) fbLink = fbLink.slice(0, -1);
       }
     }
 
-    // Final cleanup + fallback name
-    if (!name || name.trim().length < 2) {
-      name = name.trim() || "Unknown";
+    // Strategy 2: Fallback - traverse up the DOM tree looking for advertiser info
+    if (name === "Unknown" || !fbLink) {
+      let currentNode = link.parentElement;
+      let depth = 0;
+      
+      while (currentNode && depth < 10) {
+        // Look for text that might be the advertiser name
+        const textNodes = currentNode.querySelectorAll('span, div, a');
+        for (const node of textNodes) {
+          const text = node.textContent?.trim();
+          if (text && text.length > 2 && text.length < 100 && !text.includes('http')) {
+            // Check if this looks like a name (not a button, not a URL)
+            if (!text.includes('.') && !text.includes('/') && !text.includes('@')) {
+              name = text;
+              break;
+            }
+          }
+        }
+        
+        // Look for Facebook links
+        if (!fbLink) {
+          const links = currentNode.querySelectorAll('a[href*="facebook.com"]');
+          for (const foundLink of links) {
+            const href = foundLink.href || foundLink.getAttribute('href');
+            if (href && href.includes('facebook.com') && (href.includes('/page/') || href.includes('/profile.php'))) {
+              fbLink = href;
+              if (fbLink.includes('?')) fbLink = fbLink.split('?')[0];
+              break;
+            }
+          }
+        }
+        
+        if (name !== "Unknown" && fbLink) break;
+        
+        currentNode = currentNode.parentElement;
+        depth++;
+      }
+    }
+
+    // Final cleanup
+    if (!name || name.trim().length < 2 || name === "Unknown") {
+      name = "Unknown Advertiser";
     }
 
     ads.push({
