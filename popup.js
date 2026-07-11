@@ -3,12 +3,13 @@ let results = [];
 let isScanning = false;
 let scanSessionId = Date.now(); // Unique ID for this scan session
 
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const scanBtn = document.getElementById('scan-btn');
     const exportBtn = document.getElementById('export-btn');
     const status = document.getElementById('status');
     const resultsDiv = document.getElementById('results');
     const progressFill = document.getElementById('progress-fill');
+    const resetBtn = document.getElementById('reset-btn');
     const progressText = document.getElementById('progress-text');
     const safetyFill = document.getElementById('safety-fill');
     const safetyText = document.getElementById('safety-text');
@@ -32,25 +33,25 @@ document.addEventListener('DOMContentLoaded', function() {
             updateProgressBars(request.processingProgress, request.safetyProgress);
             updateStats(request.totalAds, request.uniqueBrands);
         }
-        
+
         if (request.action === "update_status") {
             status.textContent = request.message;
         }
-        
+
         if (request.action === "add_result") {
             addResult(request.result);
         }
-        
+
         if (request.action === "scan_complete") {
             scanComplete(request.qualifiedCount, request.totalScanned, request.reason);
         }
-        
+
         if (request.action === "scan_error") {
             scanError(request.message);
         }
     });
 
-    scanBtn.addEventListener('click', function() {
+    scanBtn.addEventListener('click', function () {
         if (isScanning) {
             stopScan();
         } else {
@@ -58,8 +59,25 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    exportBtn.addEventListener('click', function() {
+    exportBtn.addEventListener('click', function () {
         exportToCSV();
+    });
+
+    resetBtn.addEventListener('click', function () {
+        // First, send reset message to content script to reset isScanning
+        chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+            if (tabs[0]) {
+                chrome.tabs.sendMessage(tabs[0].id, { action: "reset_scan" }).catch(() => { });
+            }
+        });
+
+        // Then clear storage
+        chrome.storage.local.clear(() => {
+            console.log('Storage cleared');
+            results = [];
+            isScanning = false;
+            updateUIForReset();
+        });
     });
 
     function startScan() {
@@ -71,18 +89,18 @@ document.addEventListener('DOMContentLoaded', function() {
         results = [];
         resultsDiv.innerHTML = '';
         exportBtn.disabled = true;
-        
+
         // Reset progress bars
         updateProgressBars(0, 0);
         updateStats(0, 0);
-        
-        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+
+        chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
             if (tabs[0]) {
-                chrome.tabs.sendMessage(tabs[0].id, {action: "scan_ads"}, function(response) {
+                chrome.tabs.sendMessage(tabs[0].id, { action: "scan_ads" }, function (response) {
                     if (chrome.runtime.lastError) {
                         // Check if this is a valid target page
                         const url = tabs[0].url;
-                        if (!url.includes('facebook.com/ads/library') && 
+                        if (!url.includes('facebook.com/ads/library') &&
                             !(url.startsWith('file://') && url.includes('test_ad_library.html'))) {
                             status.textContent = 'Error: Please navigate to Meta Ad Library or test file first';
                         } else {
@@ -111,8 +129,11 @@ document.addEventListener('DOMContentLoaded', function() {
         isScanning = false;
         scanBtn.textContent = 'Start Scan';
         scanBtn.style.background = '#dc143c';
-        status.textContent = 'Scan stopped';
-        chrome.runtime.sendMessage({action: "stop_scan"});
+        status.textContent = 'Scan stopped.';
+        chrome.runtime.sendMessage({ action: "stop_scan" });
+        if (results.length > 0) {
+            exportBtn.disabled = false;
+        }
     }
 
     function scanComplete(qualifiedCount, totalScanned, reason) {
@@ -131,14 +152,17 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateProgressBars(processingProgress, safetyProgress) {
-        const processingPercent = Math.min((processingProgress / 10) * 100, 100);
-        const safetyPercent = Math.min((safetyProgress / 75) * 100, 100);
-        
+        const PROCESSING_MAX = 30;
+        const SAFETY_MAX = 50;
+
+        const processingPercent = Math.min((processingProgress / PROCESSING_MAX) * 100, 100);
+        const safetyPercent = Math.min((safetyProgress / SAFETY_MAX) * 100, 100);
+
         progressFill.style.width = `${processingPercent}%`;
-        progressText.textContent = `${processingProgress}/10`;
-        
+        progressText.textContent = `${processingProgress}/${PROCESSING_MAX}`;
+
         safetyFill.style.width = `${safetyPercent}%`;
-        safetyText.textContent = `${safetyProgress}/75`;
+        safetyText.textContent = `${safetyProgress}/${SAFETY_MAX}`;
     }
 
     function updateStats(totalAds, uniqueBrands) {
@@ -150,21 +174,20 @@ document.addEventListener('DOMContentLoaded', function() {
         // Only add results from the current scan session
         results.push(result);
         addResultToUI(result);
+        if (results.length > 0) {
+            exportBtn.disabled = false;
+        }
     }
 
     function addResultToUI(result) {
         const resultItem = document.createElement('div');
         resultItem.className = 'result-item';
 
-        const fbDisplay = result.fbProfile 
-        ? `<a href="${result.fbProfile}" target="_blank" style="color:#1877f2;">Facebook Profile</a>`
-        : 'No Facebook Profile';
-        
         resultItem.innerHTML = `
             <strong>${result.name}</strong><br>
             <a href="${result.website}" target="_blank" style="color: #dc143c;">${result.website}</a>
         `;
-        
+
         resultsDiv.appendChild(resultItem);
     }
 
@@ -174,30 +197,58 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        const csvContent = "data:text/csv;charset=utf-8," +
-            "Brand Name,Website URL,Facebook Profile,Email,Instagram,Detection Methods\n" +
-            results.map(result => {
-                let fbProfile = result.fbProfile || 'No Facebook Profile';
-                let email = result.email || 'No Email';
-                let instagram = result.instagram || 'No Instagram';
-                let detectionMethods = result.detectionMethods ? result.detectionMethods.join('; ') : 'Unknown';
-                
-                return `"${result.name.replace(/"/g, '""')}","${result.website}","${fbProfile}","${email}","${instagram}","${detectionMethods}"`;
-            }).join("\n");
+        // Build CSV content with proper escaping
+        const headers = "Personal Brand,Score,Brand Name,Website URL,Email,Email Patterns (Verify These),Instagram,Facebook Profile,Signals\n";
+        const rows = results.map(result => {
+            const label = (result.personalBrandLabel || '').replace(/"/g, '""');
+            const score = result.personalBrandScore || 0;
+            const name = (result.name || 'Unknown').replace(/"/g, '""');
+            const website = (result.website || '').replace(/"/g, '""');
+            const email = (result.email || '').replace(/"/g, '""');
+            const emailPatterns = (result.emailPatterns || '').replace(/"/g, '""');
+            const instagram = (result.instagram || '').replace(/"/g, '""');
+            const fbProfile = (result.fbProfile || '').replace(/"/g, '""');
+            const signals = (result.brandSignals || '').replace(/"/g, '""');
+            return `"${label}","${score}","${name}","${website}","${email}","${emailPatterns}","${instagram}","${fbProfile}","${signals}"`;
+        }).join("\n");
 
-        const encodedUri = encodeURI(csvContent);
+        const csvContent = headers + rows;
+
+        // Use Blob for more reliable download in Chrome extension popups
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const filename = `ad_hunter_results_${new Date().toISOString().slice(0, 10)}.csv`;
+
         const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `ad_hunter_results_${Date.now()}.csv`);
+        link.href = url;
+        link.download = filename;
+        link.style.display = 'none';
         document.body.appendChild(link);
         link.click();
-        document.body.removeChild(link);
+
+        // Cleanup
+        setTimeout(() => {
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }, 100);
+
+        console.log(`Exported ${results.length} results to ${filename}`);
     }
 
     // Initialize UI
     updateProgressBars(0, 0);
     updateStats(0, 0);
-    
+
+    function updateUIForReset() {
+        resultsDiv.innerHTML = '';
+        status.textContent = 'Ready to scan';
+        scanBtn.textContent = 'Start Scan';
+        scanBtn.style.background = '#dc143c';
+        exportBtn.disabled = true;
+        updateProgressBars(0, 0);
+        updateStats(0, 0);
+    }
+
     // Check if a scan is already in progress
     chrome.storage.local.get(['state'], (result) => {
         if (result.state && result.state.isProcessing) {
